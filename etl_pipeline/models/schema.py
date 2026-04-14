@@ -137,3 +137,13 @@ class JobTracker(Base):
     STATUS_ID = Column(Integer, ForeignKey('STATUS_MASTER.STATUS_ID'))
     HUMAN_ACTION = Column(String(255))
     UPDATED_ON = Column(Date)
+
+class AgentState(Base):
+    __tablename__ = 'AGENT_STATE'
+    
+    THREAD_ID = Column(String(100), primary_key=True)
+    CHECKPOINT_ID = Column(String(100), primary_key=True)
+    PARENT_CHECKPOINT_ID = Column(String(100))
+    STATE_PAYLOAD = Column(CLOB)
+    METADATA_PAYLOAD = Column(CLOB)
+    UPDATED_ON = Column(TIMESTAMP)

@@ -249,9 +249,9 @@ DOCUMENT_TRACKER IS_ACTIVE NUMBER 22
 
 DOCUMENT_TYPE_MASTER DOCUMENT_TYPE_ID NUMBER 22
 DOCUMENT_TYPE_MASTER DOCUMENT_NAME VARCHAR2 100
-DOCUMENT_TYPE_MASTER PRESHER NUMBER 22
-DOCUMENT_TYPE_MASTER EXPERIENCE NUMBER 22
-DOCUMENT_TYPE_MASTER DEV_PARTNER NUMBER 22
+DOCUMENT_TYPE_MASTER FRESHER NUMBER 1
+DOCUMENT_TYPE_MASTER EXPERIENCE NUMBER 1
+DOCUMENT_TYPE_MASTER DEV_PARTNER NUMBER 1
 DOCUMENT_TYPE_MASTER CREATED_ON DATE 17
 DOCUMENT_TYPE_MASTER UPDATED_ON DATE 17
 DOCUMENT_TYPE_MASTER IS_ACTIVE NUMBER 22
@@ -371,7 +371,7 @@ Populate Created_on with the date/time when the entry is inserted into the DB.
 For each new candidate entry in CANDIDATE_INFO, append a corresponding record in Job tracker.
 Assign a unique job_id.
 
-Set initial job type documents required.
+Set initial job type is mail sent and job sub type is documents required that is it will come from job master table .
 **Execution:**
 This workflow is executed via an "Apache Airflow DAG**.
 Schedule: "Daily at 10 PM IST**.

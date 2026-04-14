@@ -7,3 +7,10 @@ class DraftApprovalRequest(BaseModel):
     subject: str
     approved_content: str
     hr_comments: Optional[str] = None
+
+class PendingDraftResponse(BaseModel):
+    job_id: int
+    candidate: str
+    cin: str
+    draft: str
+
