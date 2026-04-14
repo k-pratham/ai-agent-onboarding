@@ -20,13 +20,58 @@ async def _notify_hr_on_failure(tool_name: str, error_msg: str):
 @tool
 async def extract_and_validate_document(file_path: str) -> str:
     """
-    Simulates sending an extracted document to our local nuMarkDown-8B-thinking 
-    to OCR and classify the document (e.g. Aadhaar, PAN).
+    Reads a document off disk, parses it to Base64 (supporting PDFs via PyMuPDF),
+    and sends it to the local vLLM nuMarkDown-8B-thinking engine for classification.
     """
     try:
+        import os
+        import base64
+        import fitz  # PyMuPDF
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import HumanMessage
+        
         logger.info(f"LangChain Tool: OCR Validation evaluating {file_path}")
-        # In reality, this communicates to vLLM running nuMarkDown
-        return f"Validated {file_path} correctly classified."
+        
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Cannot locate attachment at {file_path}")
+            
+        base64_image = ""
+        # Determine Parse logic
+        if file_path.lower().endswith('.pdf'):
+            logger.info("Executing PyMuPDF extraction wrapper on PDF format...")
+            # Open PDF and render first page to PNG
+            doc = fitz.open(file_path)
+            if len(doc) == 0:
+                raise ValueError("PDF is completely empty.")
+            page = doc.load_page(0)
+            pix = page.get_pixmap()
+            image_bytes = pix.tobytes("png")
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        else:
+            # Assume it's an image
+            with open(file_path, "rb") as image_file:
+                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+
+        # VLLM OpenAi wrapper natively supports Vision parameters
+        vllm_base_url = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+        llm = ChatOpenAI(
+            model="numarkdown-8b-thinking", # Target OCR explicitly
+            temperature=0,
+            openai_api_base=vllm_base_url,
+            openai_api_key="vllm_key"
+        )
+        
+        message = HumanMessage(
+            content=[
+                {"type": "text", "text": "Specify exactly what type of Candidate HR document this is (e.g. PAN Card, Aadhaar, Resume, 10th Marksheet)."},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+            ]
+        )
+        
+        logger.info("Dispatching Base64 visual payload to nuMarkDown engine via vLLM...")
+        response = llm.invoke([message])
+        return f"Classification Engine Result: {response.content}"
+        
     except Exception as e:
         error_payload = f"OCR Validation failed on {file_path}. System trace: {str(e)}"
         await _notify_hr_on_failure("OCR Validation", error_payload)
@@ -36,12 +81,45 @@ async def extract_and_validate_document(file_path: str) -> str:
 async def analyze_gap_tracker(cin: str) -> dict:
     """
     Performs gap analysis checking what candidate documents from the HR requirements are still missing.
-    Returns the missing document keys.
+    Queries the DOCUMENT_TRACKER dynamically against DOCUMENT_TYPE_MASTER.
     """
     try:
-        logger.info(f"LangChain Tool: Gap Tracker evaluating CIN: {cin}")
-        # Internal logic fetches DOCUMENT_TRACKER against EXPECTED DOCUMENT_TYPE_MASTER
-        return {"cin": cin, "missing_documents": ["PAN Card", "10th Marksheet"], "status": "pending_documents"}
+        logger.info(f"LangChain Tool: Dynamic Database Gap Tracker evaluating CIN: {cin}")
+        from ai_onboarding_brain.src.core.database import SessionLocal
+        from etl_pipeline.models.schema import CandidateInfo, DocumentTracker, DocumentTypeMaster
+        
+        db = SessionLocal()
+        try:
+            # Fetch candidate ID matching CIN
+            candidate = db.query(CandidateInfo).filter(CandidateInfo.CIN == cin).first()
+            if not candidate:
+                return {"error": f"Candidate CIN {cin} does not exist in master DB."}
+                
+            # Grab all Mandatory standard documents (Just an example definition pulling all active master docs)
+            expected_docs = db.query(DocumentTypeMaster).filter(DocumentTypeMaster.IS_ACTIVE == 1).all()
+            
+            # Grab all tracked documents for this candidate specifically
+            tracked_docs = db.query(DocumentTracker).filter(DocumentTracker.CANDIDATE_ID == candidate.CANDIDATE_ID).all()
+            
+            # Calculate gap missing sets
+            tracked_ids = [doc.DOCUMENT_TYPE_ID for doc in tracked_docs]
+            missing_docs = []
+            
+            for expected in expected_docs:
+                if expected.DOCUMENT_TYPE_ID not in tracked_ids:
+                    missing_docs.append(expected.DOCUMENT_NAME)
+                    
+            status = "completed" if len(missing_docs) == 0 else "pending_documents"
+            
+            return {
+                "cin": cin, 
+                "candidate_name": candidate.CANDIDATE_NAME,
+                "missing_documents": missing_docs, 
+                "status": status
+            }
+        finally:
+            db.close()
+            
     except Exception as e:
         error_payload = f"Gap tracker database parse failure for {cin}. Trace: {str(e)}"
         await _notify_hr_on_failure("Gap Tracker", error_payload)
